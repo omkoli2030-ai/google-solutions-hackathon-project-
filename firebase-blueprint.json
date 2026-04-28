@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user of the system (guest, staff, or admin).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["guest", "staff", "admin"] },
+        "avatar": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "role", "createdAt"]
+    },
+    "Incident": {
+      "title": "Incident",
+      "description": "An emergency event reported by a user.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["medical", "fire", "security", "other"] },
+        "status": { "type": "string", "enum": ["active", "responding", "resolved"] },
+        "userId": { "type": "string", "description": "UID of the person who reported it." },
+        "responderId": { "type": "string", "description": "UID of the staff member assigned." },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "area": { "type": "string" }
+          }
+        },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "status", "userId", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message or announcement related to an incident.",
+      "type": "object",
+      "properties": {
+        "incidentId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "announcement"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "text", "createdAt"]
+    },
+    "Venue": {
+      "title": "Venue",
+      "description": "The configuration and static safety data of the hospitality venue.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "aedLocations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "lat": { "type": "number" },
+              "lng": { "type": "number" },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "safeAreas": {
+           "type": "array",
+           "items": {
+             "type": "object",
+             "properties": {
+               "id": { "type": "string" },
+               "name": { "type": "string" },
+               "lat": { "type": "number" },
+               "lng": { "type": "number" }
+             }
+           }
+        }
+      },
+      "required": ["name"]
+    },
+    "Personnel": {
+      "title": "Personnel",
+      "description": "Represents the active status of staff and admin members.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["staff", "admin"] },
+        "status": { "type": "string", "enum": ["ready", "responding", "break"] },
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "avatar": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" }
+      },
+      "required": ["name", "role", "status", "lastSeen"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Global emergency broadcasts.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "severity": { "type": "string", "enum": ["info", "warning", "emergency"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "text", "severity", "createdAt"]
+    },
+    "SavedLocation": {
+      "title": "Saved Location",
+      "description": "A location saved by the user for reference or quick reporting.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "lat", "lng", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    },
+    "/users/{userId}/saved_locations/{locationId}": {
+      "schema": "SavedLocation",
+      "description": "User's bookmarked or recent locations."
+    },
+    "/incidents/{incidentId}": {
+      "schema": "Incident",
+      "description": "Emergency incidents."
+    },
+    "/incidents/{incidentId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Chat log for a specific incident."
+    },
+    "/venues/{venueId}": {
+      "schema": "Venue",
+      "description": "Venue safety data (AEDs, maps)."
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Global emergency announcements."
+    },
+    "/training_logs/{logId}": {
+      "schema": "object",
+      "description": "Records of staff protocol completions."
+    },
+    "/personnel/{userId}": {
+      "schema": "Personnel",
+      "description": "Real-time personnel availability and status."
+    }
+  }
+}

@@ -1,0 +1,175 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Explicit Role Check from Users Collection
+    function getUserData(uid) {
+      let path = /databases/$(database)/documents/users/$(uid);
+      return exists(path) ? get(path).data : {"role": "guest"};
+    }
+
+    function hasRole(uid, roles) {
+      return isSignedIn() && getUserData(uid).role in roles;
+    }
+
+    function isAdmin() {
+      return (isEmailVerified() && request.auth.token.email in ['jirichetan5@gmail.com', 'mypcnsever@gmail.com']) ||
+             hasRole(request.auth.uid, ['admin']);
+    }
+
+    function isStaff() {
+      return (isEmailVerified() && request.auth.token.email in ['jirichetan5@gmail.com', 'mypcnsever@gmail.com']) ||
+             hasRole(request.auth.uid, ['staff', 'admin']);
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email', 'role', 'createdAt']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.role in ['guest', 'staff', 'admin'] &&
+             (data.createdAt == request.time || (resource != null && data.createdAt == resource.data.createdAt));
+    }
+
+    function isValidIncident(data) {
+      return data.keys().hasAll(['type', 'status', 'userId', 'createdAt', 'location']) &&
+             data.type in ['medical', 'fire', 'security', 'other'] &&
+             data.status in ['active', 'responding', 'resolved'] &&
+             isValidId(data.userId) &&
+             (data.get('updatedAt', null) == null || data.updatedAt == request.time) &&
+             (data.createdAt == request.time || (resource != null && data.createdAt == resource.data.createdAt)) &&
+             data.location is map &&
+             data.location.area is string &&
+             data.location.area.size() <= 100 &&
+             (data.get('userName', '') is string) &&
+             (data.get('description', '') is string) &&
+             (data.get('imageUrl', null) == null || data.get('imageUrl', '') is string) &&
+             (data.get('aiGuidance', null) == null || data.get('aiGuidance', '') is string) &&
+             (data.get('responderId', null) == null || data.get('responderId', '') is string) &&
+             (data.get('responderName', null) == null || data.get('responderName', '') is string) &&
+             (data.get('respondedAt', null) == null || data.get('respondedAt', '') is timestamp || data.respondedAt == request.time) &&
+             (data.get('resolvedAt', null) == null || data.get('resolvedAt', '') is timestamp || data.resolvedAt == request.time);
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['senderId', 'senderName', 'text', 'severity', 'createdAt']) &&
+             data.senderId == request.auth.uid &&
+             data.senderName is string &&
+             data.text is string && data.text.size() <= 500 &&
+             data.severity in ['info', 'warning', 'emergency'] &&
+             (data.createdAt == request.time || (resource != null && data.createdAt == resource.data.createdAt));
+    }
+
+    function isValidPersonnel(data) {
+      return data.keys().hasAll(['name', 'role', 'status', 'lastSeen']) &&
+             data.role in ['staff', 'admin'] &&
+             data.status in ['ready', 'responding', 'break'] &&
+             (data.lastSeen == request.time || (resource != null && data.lastSeen == resource.data.lastSeen));
+    }
+
+    function isValidSavedLocation(data) {
+      return data.keys().hasAll(['name', 'lat', 'lng', 'createdAt']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.lat is number && data.lng is number &&
+             (data.get('address', '') is string) &&
+             (data.createdAt == request.time || (resource != null && data.createdAt == resource.data.createdAt));
+    }
+
+    // --- Rules ---
+
+    match /users/{userId} {
+      // Base rules for users reading their own profile or being read by staff
+      allow get: if isSignedIn() && (request.auth.uid == userId || (isEmailVerified() && request.auth.token.email in ['jirichetan5@gmail.com', 'mypcnsever@gmail.com']));
+      
+      // Separate rule for staff access to avoid internal recursion during profile initialization
+      allow get: if isStaff();
+      allow list: if isStaff();
+
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming()) && 
+                    (incoming().role == 'guest' || (incoming().role == 'admin' && isAdmin()));
+                    
+      allow update: if isSignedIn() && request.auth.uid == userId && 
+                    isValidUser(incoming()) &&
+                    (incoming().role == existing().role || isAdmin()) && 
+                    incoming().email == existing().email &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'createdAt', 'role', 'uid']);
+
+      match /saved_locations/{locationId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isSignedIn() && request.auth.uid == userId && isValidId(locationId) && isValidSavedLocation(incoming());
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /incidents/{incidentId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isStaff());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff());
+      allow create: if isEmailVerified() && isValidId(incidentId) && isValidIncident(incoming()) && incoming().userId == request.auth.uid;
+      
+      allow update: if isValidIncident(incoming()) && (
+        // Action: AI GUIDANCE INJECTION (Creator Only)
+        (request.auth.uid == existing().userId && incoming().diff(existing()).affectedKeys().hasOnly(['aiGuidance', 'updatedAt'])) ||
+        // Action: Assign Responder (Staff Only)
+        (isStaff() && incoming().status == 'responding' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'responderId', 'responderName', 'respondedAt', 'updatedAt'])) ||
+        // Action: Resolve (Responder Only)
+        (isStaff() && incoming().status == 'resolved' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolvedAt', 'updatedAt']))
+      );
+    }
+
+    match /incidents/{incidentId}/messages/{messageId} {
+      function canAccessIncident() {
+        let incident = get(/databases/$(database)/documents/incidents/$(incidentId)).data;
+        return incident.userId == request.auth.uid || isStaff();
+      }
+
+      allow read: if isSignedIn() && canAccessIncident();
+      allow create: if isEmailVerified() && isValidId(messageId) && canAccessIncident();
+    }
+
+    match /venues/{venueId} {
+      allow read: if isSignedIn();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      allow create: if isStaff() && isValidId(announcementId) && isValidAnnouncement(incoming());
+    }
+
+    match /personnel/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff() && request.auth.uid == userId && isValidPersonnel(incoming());
+    }
+
+    match /training_logs/{logId} {
+      allow read: if isStaff();
+      allow create: if isStaff() && incoming().userId == request.auth.uid && isValidId(logId);
+    }
+  }
+}
