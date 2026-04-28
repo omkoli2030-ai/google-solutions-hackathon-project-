@@ -1,0 +1,15 @@
+{
+  "name": "Guardian Hospitality",
+  "description": "An all-in-one emergency response and safety system for hospitality venues featuring real-time SOS alerts, AI first-aid assistance, and admin analytics.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "Real-time SOS Alerts",
+    "AI First-Aid Assistant",
+    "Emergency Services Locator",
+    "Admin Safety Dashboard"
+  ]
+}
